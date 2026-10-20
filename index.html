@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Eye to Eye Dixie</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Georgian:wght@600&display=swap">
+<style>
+/* Layout: full-screen ASCII canvas; quiz card docked at the bottom, caption at the top. Single dark look by choice. */
+:root {
+  --bg: #050403;
+  --fg: #e9d6c2;
+  --dim: #7d6450;
+  --panel: rgba(14, 9, 7, 0.84);
+  --line: #3b2a20;
+  --accent: #f0a050;
+  --heart: #ff4d6d;
+  --ok: #7fd18b;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); overflow: hidden; }
+canvas { position: fixed; inset: 0; display: block; width: 100%; height: 100%; }
+.hud {
+  position: fixed;
+  left: max(16px, env(safe-area-inset-left, 0px));
+  right: max(16px, env(safe-area-inset-right, 0px));
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  font: 11px/1.4 var(--mono); letter-spacing: .06em; color: var(--dim);
+  pointer-events: none;
+}
+
+.card {
+  position: fixed;
+  left: 50%; transform: translateX(-50%);
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  width: min(540px, calc(100% - 2 * max(16px, env(safe-area-inset-left, 0px))));
+  font-family: var(--mono);
+  transition: opacity .6s ease, transform .6s ease;
+}
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 16px 18px 14px;
+  display: grid; gap: 12px;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.card.gone { opacity: 0; transform: translate(-50%, 24px); pointer-events: none; }
+.card.shake { animation: shake .4s; }
+@keyframes shake { 20%{transform:translateX(calc(-50% - 8px))} 40%{transform:translateX(calc(-50% + 7px))} 60%{transform:translateX(calc(-50% - 5px))} 80%{transform:translateX(calc(-50% + 3px))} }
+.top { display: flex; justify-content: space-between; gap: 12px; font-size: 11px; letter-spacing: .12em; color: var(--dim); }
+#hearts { color: var(--heart); letter-spacing: .3em; }
+#q { margin: 0; font-size: clamp(16px, 4.2vw, 20px); line-height: 1.35; font-weight: 600; color: var(--fg); text-wrap: balance; }
+.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.opt {
+  display: flex; align-items: center; gap: 10px; text-align: left;
+  font: inherit; font-size: 15px; color: var(--fg);
+  background: transparent; border: 1px solid var(--line); border-radius: 4px;
+  padding: 10px 12px; cursor: pointer;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.opt:hover:not(:disabled) { border-color: var(--accent); background: rgba(240,160,80,.08); }
+.opt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.opt kbd { font: inherit; font-size: 11px; color: var(--dim); border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; }
+.opt.right { border-color: var(--ok); color: var(--ok); }
+.opt.wrong { border-color: var(--heart); color: var(--heart); opacity: .55; cursor: default; text-decoration: line-through; }
+.fb { margin: 0; min-height: 1.4em; font-size: 13px; color: var(--dim); }
+.fb.good { color: var(--ok); } .fb.bad { color: var(--heart); }
+.final {
+  position: fixed;
+  inset: calc(52px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) calc(20px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  display: flex; flex-direction: column; justify-content: space-between; align-items: center;
+  text-align: center; font-family: var(--mono); pointer-events: none;
+  opacity: 0; transition: opacity 1s ease;
+}
+.final.show { opacity: 1; }
+.final button { pointer-events: auto; }
+.final p { margin: 0; font-family: "Noto Sans Georgian", var(--mono); font-size: clamp(18px, 5vw, 26px); font-weight: 600; color: var(--heart); text-shadow: 0 0 18px rgba(255,77,109,.45); text-wrap: balance; }
+.final button { font: inherit; font-size: 13px; letter-spacing: .1em; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 16px; cursor: pointer; }
+.final button:hover { border-color: var(--heart); }
+.final button:focus-visible { outline: 2px solid var(--heart); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .card { transition: none; } .card.shake { animation: none; } }
+</style>
+</head>
+<body>
+
+<canvas id="c" aria-label="ASCII present box that opens to release stars and a heart once every question is answered"></canvas>
+<div class="hud"><span>EYE TO EYE DIXIE</span><span id="hint">answer them all to open your present</span></div>
+
+<section class="card" id="card" aria-live="polite">
+  <div class="top"><span id="qnum">QUESTION 1 / 3</span><span id="hearts" aria-label="progress"></span></div>
+  <h1 id="q">Loading…</h1>
+  <div class="opts" id="opts"></div>
+  <p class="fb" id="fb"></p>
+</section>
+
+<section class="final" id="final" hidden>
+  <p id="finalMsg"></p>
+  <button type="button" id="again">Play again</button>
+</section>
+
+<script>
+// =====================================================================
+//  EDIT YOUR QUESTIONS HERE
+//  Each round picks ROUND_SIZE random questions from this pool and
+//  shuffles the answers. right = the correct answer, wrong = the others.
+// =====================================================================
+const POOL = [
+  { q: "How many hearts does an octopus have?",          right: "Three",     wrong: ["One", "Two"] },
+  { q: "What's the capital of Georgia?",                  right: "Tbilisi",   wrong: ["Batumi", "Kutaisi"] },
+  { q: "Which planet do we live on?",                     right: "Earth",     wrong: ["Mars", "Venus"] },
+  { q: "How many legs does a spider have?",               right: "Eight",     wrong: ["Six", "Ten"] },
+  { q: "Which is the largest ocean?",                     right: "Pacific",   wrong: ["Atlantic", "Indian"] },
+  { q: "Blue + yellow makes which colour?",               right: "Green",     wrong: ["Purple", "Orange"] },
+  { q: "How many days are in a leap year?",               right: "366",       wrong: ["365", "364"] },
+  { q: "What's the hottest planet in our solar system?",  right: "Venus",     wrong: ["Mercury", "Mars"] },
+  { q: "What do bees make?",                              right: "Honey",     wrong: ["Milk", "Silk"] },
+  { q: "What's the tallest mountain in the world?",       right: "Everest",   wrong: ["K2", "Elbrus"] },
+  { q: "How many continents are there?",                  right: "Seven",     wrong: ["Five", "Six"] },
+  { q: "Which sea is Batumi on?",                         right: "Black Sea", wrong: ["Caspian Sea", "Red Sea"] },
+  { q: "Which of these birds can't fly?",                 right: "Penguin",   wrong: ["Eagle", "Parrot"] },
+  { q: "What's the closest star to Earth?",               right: "The Sun",   wrong: ["Polaris", "Sirius"] },
+  { q: "Which instrument has 88 keys?",                   right: "Piano",     wrong: ["Guitar", "Violin"] },
+  { q: "Which animal is called the king of the jungle?",  right: "Lion",      wrong: ["Tiger", "Elephant"] },
+];
+const ROUND_SIZE = 3;
+const FINAL_MESSAGE = "გილოცავ დიქსი შენ მოიგე უთოო";
+
+// builds a fresh random round, avoiding last round's questions when possible
+let QUESTIONS = [], lastRound = [];
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
+function newRound() {
+  const fresh = shuffle(POOL.filter(x => !lastRound.includes(x)));
+  const picked = fresh.concat(shuffle(POOL.filter(x => lastRound.includes(x)))).slice(0, ROUND_SIZE);
+  lastRound = picked;
+  QUESTIONS = picked.map(x => {
+    const options = shuffle([x.right, ...x.wrong]);
+    return { q: x.q, options, answer: options.indexOf(x.right) };
+  });
+}
+
+// ---------- setup ----------
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const RAMP = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+const NR = RAMP.length - 1;
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+let W, H, cw, chh, cols, rows, S, starChar, starB;
+
+function resize() {
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const fs = Math.max(8, Math.min(16, W / 108));      // aim for ~180 columns
+  ctx.font = `${fs}px ${getComputedStyle(document.documentElement).getPropertyValue('--mono')}`;
+  ctx.textBaseline = 'top';
+  cw = ctx.measureText('M').width;
+  chh = fs * 1.05;
+  cols = Math.ceil(W / cw);
+  rows = Math.ceil(H / chh);
+  S = Math.min(W / 1.6, H / 2.0);                     // world units -> pixels
+  starChar = new Int16Array(cols * rows);
+  starB = new Float32Array(cols * rows);
+}
+addEventListener('resize', resize);
+resize();
+
+// ---------- math helpers ----------
+const clamp = (v, a = 0, b = 1) => v < a ? a : v > b ? b : v;
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+const mix = (a, b, t) => a + (b - a) * t;
+function hash(x, y) { const h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return h - Math.floor(h); }
+function noise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  const a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+
+// ---------- the scene: a present box ----------
+const BOX_W = 0.55, BOX_TOP = 0.02, BOX_BOT = -0.75;
+
+// heart shape: negative inside, positive outside (v points up)
+function heartF(u, v) { const w = 1.25 * v - Math.sqrt(Math.abs(u)); return u * u + w * w - 1; }
+// lub-dub heartbeat pulse, about 75 bpm
+function beat(t) { const k = (t * 1.25) % 1; return Math.exp(-((k - 0.1) ** 2) / 0.002) + 0.6 * Math.exp(-((k - 0.32) ** 2) / 0.002); }
+
+// clock = seconds since page opened, o = seconds since all answers were right (-1 before that)
+function state(clock, o, wrongT, hopT) {
+  const opened = o >= 0;
+  const cam = opened ? smooth(0.6, 3.2, o) : 0;
+  let ang = 0.02 * Math.sin(clock * 2.2) * (opened ? 1 - smooth(0.6, 1, o) : 1);   // idle wobble
+  if (wrongT < 1.2) ang += 0.09 * Math.sin(wrongT * 38) * Math.exp(-wrongT * 6);    // wrong: shake
+  if (opened && o < 0.7) ang += 0.06 * Math.sin(o * 40) * smooth(0, 0.15, o);       // about to burst
+  const rise = opened ? smooth(0.9, 3.4, o) : 0;
+  return {
+    clock, ang, rise,
+    hop: hopT < 0.4 ? 0.07 * Math.sin(Math.PI * hopT / 0.4) : 0,                   // right: hop
+    lid: opened ? smooth(0.6, 1.7, o) : 0,
+    camy: mix(-0.35, 0.25, cam), zoom: mix(1, 0.75, cam),
+    glow: opened ? smooth(0.6, 1.4, o) * (1 - 0.6 * smooth(1.6, 3.4, o)) : 0,
+    heartY: mix(-0.35, 0.72, rise),
+    heartR: mix(0.14, 0.30, rise) * (1 + 0.09 * beat(clock)),
+    skyA: opened ? smooth(0.8, 2.5, o) : 0,
+    fade: smooth(0, 0.9, clock),
+  };
+}
+
+// result slot (reused, avoids garbage)
+const O = { b: 0, r: 0, g: 0, bl: 0 };
+function set(b, r, g, bl) { O.b = b; O.r = r; O.g = g; O.bl = bl; }
+
+function paper(px, py, light) {                       // orange wrapping paper with dots
+  const fx = px * 6, fy = py * 6 + 0.5 * Math.floor(fx);
+  const dot = Math.hypot(fx - Math.floor(fx) - 0.5, fy - Math.floor(fy) - 0.5) < 0.2;
+  const b = (0.5 + 0.12 * noise(px * 8, py * 8)) * light;
+  if (dot) set(b + 0.14, 255, 180, 100); else set(b, 228, 106, 44);
+}
+function ribbon(b) { set(b, 250, 224, 168); }
+
+function body(bx, by, st) {
+  if (Math.abs(bx) > BOX_W || by < BOX_BOT || by > BOX_TOP) return false;
+  const edge = Math.min(BOX_W - Math.abs(bx), by - BOX_BOT, BOX_TOP - by);
+  let light = (0.88 - 0.18 * bx / BOX_W) * (0.55 + 0.45 * smooth(0, 0.03, edge));
+  if (st.lid < 0.05 && by > BOX_TOP - 0.06) light *= 0.7;                     // shadow under the lid
+  light += st.glow * 0.5 * smooth(BOX_TOP - 0.06, BOX_TOP, by);              // light spilling over the rim
+  if (Math.abs(bx) < 0.075) ribbon(0.8 * light); else paper(bx, by, light);
+  return true;
+}
+
+function lidDraw(lx, ly) {                             // lid local: base at y=0, top at y=0.17
+  if (Math.hypot(lx / 0.07, (ly - 0.21) / 0.06) < 1) { ribbon(0.95); return true; }   // knot
+  for (const s of [-1, 1]) {                                                         // bow loops
+    const cx = lx - s * 0.17, cy = ly - 0.27, c = Math.cos(0.4), sn = s * Math.sin(0.4);
+    const ex = (c * cx + sn * cy) / 0.17, ey = (-sn * cx + c * cy) / 0.11;
+    const e = Math.hypot(ex, ey);
+    if (e < 1 && e > 0.45) { ribbon(0.55 + 0.4 * (1 - e) + 0.1 * (s < 0)); return true; }
+  }
+  if (Math.abs(lx) > 0.62 || ly < 0 || ly > 0.17) return false;
+  const edge = Math.min(0.62 - Math.abs(lx), ly, 0.17 - ly);
+  const light = (1 - 0.12 * lx / 0.62) * (0.55 + 0.45 * smooth(0, 0.025, edge));
+  if (Math.abs(lx) < 0.075) ribbon(0.88 * light); else paper(lx + 3, ly, light);
+  return true;
+}
+
+function backdrop(x, y, st) {
+  let b = 0, r = 0, g = 0, bl = 0;
+  const add = (v, R, G, B) => { b += v; r += v * R; g += v * G; bl += v * B; };
+
+  if (st.rise > 0) {                                   // the heart
+    const R = st.heartR, u = x / R, v = (y - st.heartY) / R + 0.2;
+    const f = heartF(u, v);
+    if (f < 0) {
+      const inner = smooth(0, 0.45, -f);
+      const lam = clamp(1 - Math.hypot(u + 0.4, v - 0.5) / 1.7);
+      const band = 0.55 + 0.45 * Math.sin(v * 14 + noise(u * 3 + st.clock * 0.25, v * 6) * 3.5);
+      const hb = (0.3 + 0.7 * lam) * (0.65 + 0.35 * inner) * (0.6 + 0.4 * band) + 0.35 * (1 - smooth(0, 0.12, -f));
+      return set(Math.min(1, hb * 1.3) * smooth(0, 0.15, st.rise), mix(205, 255, band), mix(30, 130, band * lam), mix(60, 140, band));
+    }
+    add(Math.exp(-f * 9) * 0.75 * st.rise, 255, 80, 120);
+  }
+
+  if (st.glow > 0 && y > BOX_TOP - 0.02) {             // light rays from the open box
+    const h = y - BOX_TOP, spread = BOX_W * 0.9 + h * 0.55;
+    if (Math.abs(x) < spread) {
+      const rays = 0.55 + 0.45 * Math.sin(Math.atan2(x, h + 0.6) * 22 + st.clock * 1.3);
+      add(st.glow * rays * Math.exp(-h * 1.6) * (1 - smooth(spread * 0.7, spread, Math.abs(x))) * 0.3, 255, 205, 120);
+    }
+  }
+
+  add(0.13 * Math.exp(-((x / 0.95) ** 2 + ((y + 0.25) / 0.85) ** 2)), 200, 110, 60);    // soft spotlight
+  add(0.03 * noise(x * 5, y * 5), 160, 90, 50);                                          // dust
+  add(st.skyA * 0.08 * smooth(0.35, 0.8, noise(x * 2.5 + 7, y * 2.5) * noise(x * 6, y * 6 + 3) * 1.6), 110, 70, 150);
+  if (b > 0) set(b, r / b, g / b, bl / b); else set(0, 0, 0, 0);
+}
+
+function scene(x, y, st) {
+  const ca = Math.cos(st.ang), sa = Math.sin(st.ang);    // box wobbles around its base
+  const rx = x, ry = y - BOX_BOT - st.hop;
+  const bx = ca * rx + sa * ry, by = -sa * rx + ca * ry + BOX_BOT;
+  const l = st.lid, rot = 0.8 * l;                        // lid flies up and away
+  const tx = bx + 0.9 * l * l, ty = by - (BOX_TOP + 0.085 + 4.5 * l * l);
+  const lx = Math.cos(rot) * tx + Math.sin(rot) * ty, ly = -Math.sin(rot) * tx + Math.cos(rot) * ty + 0.085;
+  if (l < 0.999 && lidDraw(lx, ly)) return;
+  if (body(bx, by, st)) return;
+  backdrop(x, y, st);
+}
+
+// ---------- stars ----------
+let PARTS = [], burst = false, emitAcc = 0;
+const SKY = Array.from({ length: 170 }, () => ({ x: (Math.random() * 2 - 1) * 2.6, y: Math.random() * 3.4 - 1.2, tw: Math.random() * 6.28 }));
+function emit(n) {
+  for (let i = 0; i < n; i++) PARTS.push({
+    x: (Math.random() * 2 - 1) * 0.45, y: BOX_TOP,
+    vx: (Math.random() * 2 - 1) * 0.55, vy: 0.5 + Math.random() * 1.1,
+    life: 0, max: 1.4 + Math.random() * 2.2, tw: Math.random() * 6.28,
+  });
+}
+
+function placeStars(st, dt, o) {
+  starChar.fill(0);
+  if (o >= 0.7) {
+    if (!burst) { emit(140); burst = true; }
+    emitAcc += dt * 30; while (emitAcc >= 1) { emit(1); emitAcc--; }
+  }
+  const put = (c, r, ch, bb) => {
+    if (c < 0 || r < 0 || c >= cols || r >= rows) return;
+    const k = r * cols + c;
+    if (bb > starB[k] || !starChar[k]) { starChar[k] = ch.charCodeAt(0); starB[k] = bb; }
+  };
+  const plot = (x, y, b) => {
+    if (b < 0.08) return;
+    if (Math.abs(x) < BOX_W + 0.02 && y < BOX_TOP && y > BOX_BOT) return;      // behind the box
+    if (st.rise > 0 && heartF(x / st.heartR, (y - st.heartY) / st.heartR + 0.2) < 0.5) return;
+    const c = Math.round((x * st.zoom * S + W / 2) / cw);
+    const r = Math.round((-(y - st.camy) * st.zoom * S + H / 2) / chh);
+    if (b > 0.7) { put(c, r, '+', b); put(c - 1, r, '-', b * 0.7); put(c + 1, r, '-', b * 0.7); put(c, r - 1, '|', b * 0.6); put(c, r + 1, '|', b * 0.6); }
+    else put(c, r, b > 0.35 ? '+' : '.', b);
+  };
+  for (const s of SKY) plot(s.x, s.y, st.skyA * 0.55 * (0.6 + 0.4 * Math.sin(st.clock * 3 + s.tw)));
+  PARTS = PARTS.filter(p => (p.life += dt) < p.max);
+  for (const p of PARTS) {
+    p.x += p.vx * dt; p.y += p.vy * dt; p.vy *= 0.995;
+    plot(p.x, p.y, (1 - p.life / p.max) * 1.1 * (0.7 + 0.3 * Math.sin(st.clock * 8 + p.tw)));
+  }
+}
+
+// ---------- render loop ----------
+const T0 = performance.now();
+let last = T0;
+let phase = 'quiz', qi = 0, busy = false, openAt = 0, wrongAt = -99, hopAt = -99;
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const clock = (now - T0) / 1000;
+  const o = phase === 'open' ? (now - openAt) / 1000 : -1;
+  const st = state(clock, o, clock - wrongAt, clock - hopAt);
+  if (o > 3.6) showFinal();
+  placeStars(st, dt, o);
+  const jitterSeed = REDUCED ? 0 : Math.floor(now / 90);
+
+  ctx.fillStyle = '#050403';
+  ctx.fillRect(0, 0, W, H);
+
+  const inv = 1 / (st.zoom * S);
+  for (let r = 0; r < rows; r++) {
+    const wy = -(r * chh + chh / 2 - H / 2) * inv + st.camy;
+    for (let c = 0; c < cols; c++) {
+      const k = r * cols + c;
+      let code, b, R, G, B;
+      if (starChar[k]) {
+        code = starChar[k]; b = starB[k]; R = 235; G = 232; B = 255;
+      } else {
+        scene((c * cw + cw / 2 - W / 2) * inv, wy, st);
+        b = O.b; R = O.r; G = O.g; B = O.bl;
+        let idx = Math.floor(clamp(b) * NR);
+        if (idx > 2 && jitterSeed) idx += Math.floor(hash(c + jitterSeed * 0.37, r) * 3) - 1;
+        if (idx <= 0) continue;
+        code = RAMP.charCodeAt(clamp(idx, 1, NR));
+      }
+      const m = (0.35 + 0.8 * b) * st.fade;
+      if (m < 0.03) continue;
+      ctx.fillStyle = `rgb(${R * m | 0},${G * m | 0},${B * m | 0})`;
+      ctx.fillText(String.fromCharCode(code), c * cw, r * chh);
+    }
+  }
+}
+requestAnimationFrame(frame);
+
+// ---------- the quiz ----------
+const $ = id => document.getElementById(id);
+const card = $('card'), fin = $('final');
+
+function progress() { $('hearts').textContent = QUESTIONS.map((_, i) => i < qi ? '♥' : '♡').join(''); }
+
+function renderQ() {
+  const Q = QUESTIONS[qi];
+  $('qnum').textContent = `QUESTION ${qi + 1} / ${QUESTIONS.length}`;
+  progress();
+  $('q').textContent = Q.q;
+  $('fb').textContent = ''; $('fb').className = 'fb';
+  const box = $('opts'); box.replaceChildren();
+  Q.options.forEach((text, i) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'opt'; b.id = 'opt' + i;
+    const k = document.createElement('kbd'); k.textContent = i + 1;
+    const span = document.createElement('span'); span.textContent = text;
+    b.append(k, span);
+    b.addEventListener('click', () => choose(i, b));
+    box.append(b);
+  });
+  busy = false;
+}
+
+function choose(i, btn) {
+  if (phase !== 'quiz' || busy || btn.disabled) return;
+  const fb = $('fb');
+  if (i === QUESTIONS[qi].answer) {
+    busy = true;
+    btn.classList.add('right');
+    qi++; progress();
+    hopAt = (performance.now() - T0) / 1000;
+    if (qi >= QUESTIONS.length) {
+      fb.textContent = 'All correct. Your present is opening…'; fb.className = 'fb good';
+      setTimeout(() => { card.classList.add('gone'); phase = 'open'; openAt = performance.now(); }, 1100);
+    } else {
+      fb.textContent = 'Correct!'; fb.className = 'fb good';
+      setTimeout(renderQ, 750);
+    }
+  } else {
+    btn.classList.add('wrong'); btn.disabled = true;
+    fb.textContent = 'Nope. Try again.'; fb.className = 'fb bad';
+    wrongAt = (performance.now() - T0) / 1000;
+    card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
+  }
+}
+
+function showFinal() {
+  if (!fin.hidden) return;
+  $('finalMsg').textContent = FINAL_MESSAGE;
+  $('hint').hidden = true;
+  fin.hidden = false;
+  requestAnimationFrame(() => fin.classList.add('show'));
+}
+
+$('again').addEventListener('click', () => {
+  fin.classList.remove('show'); fin.hidden = true; $('hint').hidden = false;
+  qi = 0; phase = 'quiz';
+  PARTS = []; burst = false; emitAcc = 0;
+  newRound();
+  card.classList.remove('gone');
+  renderQ();
+});
+
+addEventListener('keydown', e => {                       // keys 1-4 pick an answer
+  const n = parseInt(e.key, 10);
+  if (phase === 'quiz' && n >= 1) { const b = $('opt' + (n - 1)); if (b) choose(n - 1, b); }
+});
+
+newRound();
+renderQ();
+</script>
+</body>
+</html>
